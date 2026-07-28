@@ -1,0 +1,70 @@
+name: Android NDK build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build with Android NDK
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: /usr/local/android-sdk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Install tools (cmdline-tools) and NDK
+        run: |
+          set -e
+          sudo mkdir -p "$ANDROID_SDK_ROOT"
+          sudo chown $(id -u):$(id -g) "$ANDROID_SDK_ROOT"
+          cd $HOME
+          # Download Android command line tools (stable url). If this URL ever breaks, update to a current commandlinetools zip from Google.
+          curl -fSL "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip" -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d cmdline-tools-temp
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv cmdline-tools-temp/cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          rm -rf cmdline-tools.zip cmdline-tools-temp
+
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+
+          # Accept licenses and install required packages. Adjust NDK version or Android platform as needed.
+          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses || true
+
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-21" "ndk;21.4.7075529"
+
+      - name: Add NDK to PATH
+        run: |
+          echo "$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> $GITHUB_PATH
+
+      - name: Build with ndk-build
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          echo "NDK path: $ANDROID_SDK_ROOT/ndk"
+          # Use ndk-build from the installed NDK. If your project expects a different ABI, adjust APP_ABI.
+          "$ANDROID_SDK_ROOT/ndk/21.4.7075529/ndk-build" NDK_PROJECT_PATH=. APP_ABI=arm64-v8a -j$(nproc)
+
+      - name: Collect build outputs
+        run: |
+          echo "Listing libs and obj directories"
+          ls -la libs || true
+          ls -la obj || true
+
+      - name: Upload native build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-libs
+          path: |
+            libs/**
+            obj/**
