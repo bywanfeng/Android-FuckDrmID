@@ -9,7 +9,7 @@ on:
       ndk-version:
         description: "Android NDK version to use"
         required: false
-        default: "r27c"
+        default: "r29"
 
 permissions:
   contents: read
@@ -22,11 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # NDK r29 (clang 21): supports -fvisibility-global-new-delete=force-hidden
+      # (clang 19+) AND the void* __builtin___clear_cache signature (clang 20+),
+      # so the repo builds with zero source changes. r27c/r28 would need edits.
       - name: Set up Android NDK
         id: ndk
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: ${{ github.event.inputs.ndk-version || 'r27c' }}
+          ndk-version: ${{ github.event.inputs.ndk-version || 'r29' }}
           add-to-path: true
 
       # Android.mk / Application.mk live at the repo root (not jni/), so pass
