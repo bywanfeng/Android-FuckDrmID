@@ -29,9 +29,15 @@ jobs:
           ndk-version: ${{ github.event.inputs.ndk-version || 'r27c' }}
           add-to-path: true
 
+      # Android.mk / Application.mk live at the repo root (not jni/), so pass
+      # APP_BUILD_SCRIPT and NDK_APPLICATION_MK explicitly to ndk-build.
       - name: Build with ndk-build
         run: |
-          ndk-build NDK_PROJECT_PATH="$GITHUB_WORKSPACE" -j"$(nproc)"
+          ndk-build \
+            NDK_PROJECT_PATH="$GITHUB_WORKSPACE" \
+            APP_BUILD_SCRIPT="$GITHUB_WORKSPACE/Android.mk" \
+            NDK_APPLICATION_MK="$GITHUB_WORKSPACE/Application.mk" \
+            -j"$(nproc)"
 
       - name: Show output
         run: |
