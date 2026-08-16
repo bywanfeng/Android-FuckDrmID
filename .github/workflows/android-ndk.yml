@@ -1,70 +1,66 @@
-name: Android NDK build
+name: Build FuckDRMID
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "master", "main" ]
   pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      ndk-version:
+        description: "Android NDK version to use"
+        required: false
+        default: "r27c"
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build with Android NDK
+    name: Build arm64-v8a
     runs-on: ubuntu-latest
-    env:
-      ANDROID_SDK_ROOT: /usr/local/android-sdk
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
+      - name: Set up Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
         with:
-          distribution: temurin
-          java-version: '11'
-
-      - name: Install tools (cmdline-tools) and NDK
-        run: |
-          set -e
-          sudo mkdir -p "$ANDROID_SDK_ROOT"
-          sudo chown $(id -u):$(id -g) "$ANDROID_SDK_ROOT"
-          cd $HOME
-          # Download Android command line tools (stable url). If this URL ever breaks, update to a current commandlinetools zip from Google.
-          curl -fSL "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip" -o cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d cmdline-tools-temp
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          mv cmdline-tools-temp/cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
-          rm -rf cmdline-tools.zip cmdline-tools-temp
-
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-
-          # Accept licenses and install required packages. Adjust NDK version or Android platform as needed.
-          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses || true
-
-          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-21" "ndk;21.4.7075529"
-
-      - name: Add NDK to PATH
-        run: |
-          echo "$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> $GITHUB_PATH
+          ndk-version: ${{ github.event.inputs.ndk-version || 'r27c' }}
+          add-to-path: true
 
       - name: Build with ndk-build
-        working-directory: ${{ github.workspace }}
         run: |
-          set -e
-          echo "NDK path: $ANDROID_SDK_ROOT/ndk"
-          # Use ndk-build from the installed NDK. If your project expects a different ABI, adjust APP_ABI.
-          "$ANDROID_SDK_ROOT/ndk/21.4.7075529/ndk-build" NDK_PROJECT_PATH=. APP_ABI=arm64-v8a -j$(nproc)
+          ndk-build NDK_PROJECT_PATH="$GITHUB_WORKSPACE" -j"$(nproc)"
 
-      - name: Collect build outputs
+      - name: Show output
         run: |
-          echo "Listing libs and obj directories"
-          ls -la libs || true
-          ls -la obj || true
+          ls -la "$GITHUB_WORKSPACE/libs/arm64-v8a/"
 
-      - name: Upload native build artifacts
-        uses: actions/upload-artifact@v3
+      # Optional: if the repo has a module.prop, pack a flashable Magisk/Zygisk module zip
+      - name: Pack module zip
+        if: hashFiles('module.prop') != ''
+        run: |
+          set -eux
+          mkdir -p module/zygisk
+          cp libs/arm64-v8a/libdrmid.so module/zygisk/arm64-v8a.so
+          cp module.prop module/
+          for f in customize.sh post-fs-data.sh service.sh uninstall.sh; do
+            [ -f "$f" ] && cp "$f" module/
+          done
+          (cd module && zip -qr "../FuckDRMID.zip" .)
+
+      - name: Upload libdrmid.so
+        uses: actions/upload-artifact@v4
         with:
-          name: native-libs
-          path: |
-            libs/**
-            obj/**
+          name: libdrmid-arm64-v8a
+          path: libs/arm64-v8a/libdrmid.so
+          if-no-files-found: error
+
+      - name: Upload module zip
+        if: hashFiles('module.prop') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: FuckDRMID-module
+          path: FuckDRMID.zip
+          if-no-files-found: error
